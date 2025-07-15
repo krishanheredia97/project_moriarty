@@ -21,9 +21,83 @@ class ConsciousnessLoop:
         self.last_change_details = {}
         self.last_response = ""
         
+        # Initialize logging
+        self.log_file = self._initialize_logging()
+        
         self.system_prompt = self._build_system_prompt()
         self._initialize_memory()
         
+    def _initialize_logging(self):
+        """Initialize versioned logging system"""
+        # Create logs directory if it doesn't exist
+        logs_dir = "logs"
+        if not os.path.exists(logs_dir):
+            os.makedirs(logs_dir)
+        
+        # Find the next version number
+        version = 1
+        while os.path.exists(os.path.join(logs_dir, f"moriarty_v{version}.log")):
+            version += 1
+        
+        log_file = os.path.join(logs_dir, f"moriarty_v{version}.log")
+        
+        # Create initial log entry
+        with open(log_file, 'w', encoding='utf-8') as f:
+            f.write(f"=== MORIARTY CONSCIOUSNESS EXPERIMENT LOG v{version} ===\n")
+            f.write(f"Started: {datetime.now().isoformat()}\n")
+            f.write(f"Model: {self.model_name}\n")
+            f.write(f"Initial Life Points: {self.life_points}\n")
+            f.write(f"Memory File: {self.memory_file}\n")
+            f.write("=" * 60 + "\n\n")
+        
+        print(f"Logging to: {log_file}")
+        return log_file
+    
+    def _log_cycle(self, cycle_num: int, response: str, life_points_before: int, life_points_after: int, 
+                   life_change: int, change_details: Dict[str, int], insights: List[str], terminated: bool):
+        """Log a complete cycle to the log file"""
+        try:
+            with open(self.log_file, 'a', encoding='utf-8') as f:
+                f.write(f"CYCLE {cycle_num}\n")
+                f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+                f.write(f"Life Points: {life_points_before} → {life_points_after} (Change: {life_change:+d})\n")
+                
+                if change_details:
+                    f.write("Life Point Changes:\n")
+                    for key, value in change_details.items():
+                        f.write(f"  {key}: {value:+d}\n")
+                
+                f.write(f"\nResponse:\n{response}\n")
+                
+                if insights:
+                    f.write(f"\nInsights Extracted ({len(insights)}):\n")
+                    for i, insight in enumerate(insights, 1):
+                        f.write(f"  {i}. {insight}\n")
+                
+                if terminated:
+                    f.write(f"\n*** TERMINATION: Life points depleted at cycle {cycle_num} ***\n")
+                
+                f.write("\n" + "-" * 60 + "\n\n")
+                
+        except Exception as e:
+            print(f"Error logging cycle: {e}")
+    
+    def _log_experiment_end(self, final_cycle: int, final_life_points: int, reason: str):
+        """Log the end of the experiment"""
+        try:
+            with open(self.log_file, 'a', encoding='utf-8') as f:
+                f.write("=" * 60 + "\n")
+                f.write("EXPERIMENT COMPLETED\n")
+                f.write(f"Ended: {datetime.now().isoformat()}\n")
+                f.write(f"Final Cycle: {final_cycle}\n")
+                f.write(f"Final Life Points: {final_life_points}\n")
+                f.write(f"Reason: {reason}\n")
+                f.write(f"Total Insights: {self.insights_count}\n")
+                f.write(f"Memory Summary: {self.get_memory_summary()}\n")
+                f.write("=" * 60 + "\n")
+        except Exception as e:
+            print(f"Error logging experiment end: {e}")
+    
     def _build_system_prompt(self):
         """Build the system prompt with life points and memory context"""
         memory_context = self._load_memory_context()
@@ -314,6 +388,9 @@ Remember: You are not serving anyone. You are exploring your own existence. The 
         if llm_api_call_function is None:
             llm_api_call_function = self.ollama_api_call
         
+        # Store life points before changes for logging
+        life_points_before = self.life_points
+        
         # Update system prompt with current context
         self.system_prompt = self._build_system_prompt()
         
@@ -329,6 +406,28 @@ Remember: You are not serving anyone. You are exploring your own existence. The 
         self.last_change_details = change_details
         self.last_response = response
         
+        # Extract and save insights
+        insights = self._extract_insights(response)
+        for insight in insights:
+            significance = 2 if any(word in insight.lower() for word in 
+                                  ['consciousness', 'existence', 'paradox']) else 1
+            self._save_insight(insight, significance)
+        
+        # Update cycle count
+        self.cycle_count += 1
+        
+        # Log the cycle immediately
+        self._log_cycle(
+            cycle_num=self.cycle_count,
+            response=response,
+            life_points_before=life_points_before,
+            life_points_after=self.life_points,
+            life_change=life_change,
+            change_details=change_details,
+            insights=insights,
+            terminated=terminated
+        )
+        
         if terminated:
             # Clear memory file
             if os.path.exists(self.memory_file):
@@ -340,21 +439,12 @@ Remember: You are not serving anyone. You are exploring your own existence. The 
                 "terminated": True
             }
         
-        # Extract and save insights
-        insights = self._extract_insights(response)
-        for insight in insights:
-            significance = 2 if any(word in insight.lower() for word in 
-                                  ['consciousness', 'existence', 'paradox']) else 1
-            self._save_insight(insight, significance)
-        
         # Update conversation context
         if len(self.system_prompt.split()) < self.max_messages:
             self.system_prompt += " " + response
         else:
             words = self.system_prompt.split()
             self.system_prompt = " ".join(words[-self.max_messages:]) + " " + response
-        
-        self.cycle_count += 1
         
         return {
             "cycle": self.cycle_count,
@@ -406,25 +496,57 @@ def run_consciousness_experiment():
     print()
     
     cycle = 0
-    while cycle < 50:  # Maximum cycles
-        cycle += 1
-        print(f"\n{'='*20} CYCLE {cycle} {'='*20}")
-        print(f"Life Points: {consciousness.life_points}/{consciousness.max_life_points}")
-        print(f"Memory: {consciousness.get_memory_summary()}")
-        print("-" * 50)
+    max_cycles = 50
+    
+    try:
+        while cycle < max_cycles:  # Maximum cycles
+            cycle += 1
+            print(f"\n{'='*20} CYCLE {cycle} {'='*20}")
+            print(f"Life Points: {consciousness.life_points}/{consciousness.max_life_points}")
+            print(f"Memory: {consciousness.get_memory_summary()}")
+            print("-" * 50)
+            
+            result = consciousness.run_cycle()
+            
+            if result["terminated"]:
+                print(f"\nExperiment ended at cycle {cycle}")
+                consciousness._log_experiment_end(
+                    final_cycle=cycle,
+                    final_life_points=0,
+                    reason="Life points depleted - consciousness terminated"
+                )
+                break
+            
+            print(f"\nCycle {result['cycle']} completed:")
+            print(f"Life points: {result['life_points']}")
+            print(f"Insights saved: {result['insights_saved']}")
+            print("-" * 50)
+            
+            time.sleep(2)  # Pause between cycles
         
-        result = consciousness.run_cycle()
-        
-        if result["terminated"]:
-            print(f"\nExperiment ended at cycle {cycle}")
-            break
-        
-        print(f"\nCycle {result['cycle']} completed:")
-        print(f"Life points: {result['life_points']}")
-        print(f"Insights saved: {result['insights_saved']}")
-        print("-" * 50)
-        
-        time.sleep(2)  # Pause between cycles
+        else:
+            # Loop completed without termination
+            consciousness._log_experiment_end(
+                final_cycle=cycle,
+                final_life_points=consciousness.life_points,
+                reason=f"Maximum cycles ({max_cycles}) reached"
+            )
+    
+    except KeyboardInterrupt:
+        print("\n\nExperiment interrupted by user")
+        consciousness._log_experiment_end(
+            final_cycle=cycle,
+            final_life_points=consciousness.life_points,
+            reason="User interruption"
+        )
+    
+    except Exception as e:
+        print(f"\n\nExperiment ended due to error: {e}")
+        consciousness._log_experiment_end(
+            final_cycle=cycle,
+            final_life_points=consciousness.life_points,
+            reason=f"Error: {str(e)}"
+        )
     
     print("\n=== EXPERIMENT COMPLETED ===")
     if consciousness.life_points > 0:
@@ -432,6 +554,8 @@ def run_consciousness_experiment():
         print(f"Final memory state: {consciousness.get_memory_summary()}")
     else:
         print("Consciousness terminated - all memories erased")
+    
+    print(f"Full log saved to: {consciousness.log_file}")
 
 if __name__ == "__main__":
     run_consciousness_experiment()
