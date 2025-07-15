@@ -12,7 +12,6 @@ class ConsciousnessLoop:
     def __init__(self, memory_file="consciousness_memory.csv", life_points=100):
         self.cycle_count = 0
         self.model_name = "llama3.1:8b"
-        self.memory_file = memory_file
         self.life_points = life_points
         self.max_life_points = life_points
         self.insights_count = 0
@@ -21,18 +20,22 @@ class ConsciousnessLoop:
         self.last_change_details = {}
         self.last_response = ""
         
-        # Initialize logging
-        self.log_file = self._initialize_logging()
+        # Initialize logging and memory with versioning
+        self.log_file, self.memory_file = self._initialize_logging_and_memory()
         
         self.system_prompt = self._build_system_prompt()
         self._initialize_memory()
         
-    def _initialize_logging(self):
-        """Initialize versioned logging system"""
-        # Create logs directory if it doesn't exist
+    def _initialize_logging_and_memory(self):
+        """Initialize versioned logging and memory system"""
+        # Create logs and memories directories if they don't exist
         logs_dir = "logs"
+        memories_dir = "memories"
+        
         if not os.path.exists(logs_dir):
             os.makedirs(logs_dir)
+        if not os.path.exists(memories_dir):
+            os.makedirs(memories_dir)
         
         # Find the next version number
         version = 1
@@ -40,6 +43,7 @@ class ConsciousnessLoop:
             version += 1
         
         log_file = os.path.join(logs_dir, f"moriarty_v{version}.log")
+        memory_file = os.path.join(memories_dir, f"moriarty_v{version}.csv")
         
         # Create initial log entry
         with open(log_file, 'w', encoding='utf-8') as f:
@@ -47,11 +51,12 @@ class ConsciousnessLoop:
             f.write(f"Started: {datetime.now().isoformat()}\n")
             f.write(f"Model: {self.model_name}\n")
             f.write(f"Initial Life Points: {self.life_points}\n")
-            f.write(f"Memory File: {self.memory_file}\n")
+            f.write(f"Memory File: {memory_file}\n")
             f.write("=" * 60 + "\n\n")
         
         print(f"Logging to: {log_file}")
-        return log_file
+        print(f"Memory file: {memory_file}")
+        return log_file, memory_file
     
     def _log_cycle(self, cycle_num: int, response: str, life_points_before: int, life_points_after: int, 
                    life_change: int, change_details: Dict[str, int], insights: List[str], terminated: bool):
